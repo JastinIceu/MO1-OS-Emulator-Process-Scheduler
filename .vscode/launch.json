@@ -1,0 +1,20 @@
+{
+    // F5 builds first, then runs csopesy.exe in its own console window so you can type commands
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run CSOPESY",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/csopesy.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [{ "name": "PATH", "value": "C:\\winlibs\\bin;${env:PATH}" }],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:/winlibs/bin/gdb.exe",
+            "preLaunchTask": "Build CSOPESY"
+        }
+    ]
+}
