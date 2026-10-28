@@ -17,10 +17,26 @@
 #include <cstdlib>
 #include <filesystem>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 using namespace std;
 
 // how long one cpu tick lasts in real time (milliseconds)
 const int TICK_MS = 100;
+
+// console color codes
+const string RESET = "\033[0m";
+const string RED = "\033[91m";
+const string GREEN = "\033[92m";
+const string YELLOW = "\033[93m";
+const string CYAN = "\033[96m";
+const string GRAY = "\033[90m";
+const string WHITE = "\033[97m";
+
+const string DIVIDER = "------------------------------------------";
 
 const string DEVELOPERS = "Justin David, Kryster Limpin, Railey Singson";
 const string LAST_UPDATED = "10-28-2026";
@@ -98,6 +114,33 @@ uint16_t clamp16(long long value) {
     return (uint16_t)value;
 }
 
+// Wraps text in a color, or leaves it plain if colors are off
+string paint(const string& text, const string& color, bool useColor = true) {
+    if (!useColor) return text;
+    return color + text + RESET;
+}
+
+// Adds spaces to the end of text until it's the given width
+string padRight(string text, size_t width) {
+    if (text.size() < width) text += string(width - text.size(), ' ');
+    return text;
+}
+
+// Turns on color support in the Windows console
+void enableColors() {
+#ifdef _WIN32
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    GetConsoleMode(out, &mode);
+    SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#endif
+}
+
+// Prints the main prompt
+void printPrompt() {
+    cout << paint("root:\\>", GREEN) << " ";
+}
+
 // Clears the console
 void clearScreen() {
 #ifdef _WIN32
@@ -109,18 +152,18 @@ void clearScreen() {
 
 // Prints the CSOPESY banner
 void printHeader() {
-    cout << R"ART(
+    cout << CYAN << R"ART(
   ____ ____   ___  ____  _____ ______   __
  / ___/ ___| / _ \|  _ \| ____/ ___\ \ / /
 | |   \___ \| | | | |_) |  _| \___ \\ V /
 | |___ ___) | |_| |  __/| |___ ___) || |
  \____|____/ \___/|_|   |_____|____/ |_|
-)ART";
-    cout << "------------------------------------------\n";
-    cout << "Welcome to CSOPESY Emulator!\n\n";
+)ART" << RESET;
+    cout << paint(DIVIDER, GRAY) << "\n";
+    cout << paint("Welcome to CSOPESY Emulator!", WHITE) << "\n\n";
     cout << "Developers:\n" << DEVELOPERS << "\n\n";
-    cout << "Last updated: " << LAST_UPDATED << "\n";
-    cout << "------------------------------------------\n\n";
+    cout << "Last updated: " << paint(LAST_UPDATED, YELLOW) << "\n";
+    cout << paint(DIVIDER, GRAY) << "\n\n";
 }
 
 // Reads config.txt, returns false if the file is missing
@@ -242,7 +285,8 @@ void execute(Process* p, int coreId) {
         string msg = ins.args[0];
         // tack on the variable's value if one was given
         if (ins.args.size() > 1) msg += to_string(getValue(p, ins.args[1]));
-        p->logs.push_back("(" + timestamp() + ") Core:" + to_string(coreId) + " \"" + msg + "\"");
+        p->logs.push_back(paint("(" + timestamp() + ")", GRAY) + " " +
+                          paint("Core:" + to_string(coreId), CYAN) + " \"" + msg + "\"");
     } else if (ins.type == "DECLARE") {
         p->vars[ins.args[0]] = clamp16(stoll(ins.args[1]));
     } else if (ins.type == "ADD") {
@@ -325,8 +369,8 @@ void schedulerLoop() {
     }
 }
 
-// Builds the cpu usage and process list for screen -ls and report-util
-string buildReport() {
+// Builds the cpu usage and process list, colors are off for the log file
+string buildReport(bool useColor) {
     lock_guard<mutex> lock(mtx);
     stringstream ss;
 
@@ -334,42 +378,49 @@ string buildReport() {
     for (Process* p : cores)
         if (p != nullptr) used++;
 
-    ss << "CPU utilization: " << used * 100 / config.numCpu << "%\n";
-    ss << "Cores used: " << used << "\n";
-    ss << "Cores available: " << config.numCpu - used << "\n\n";
-    ss << "------------------------------------------\n";
+    ss << "CPU utilization: " << paint(to_string(used * 100 / config.numCpu) + "%", YELLOW, useColor) << "\n";
+    ss << "Cores used: " << paint(to_string(used), YELLOW, useColor) << "\n";
+    ss << "Cores available: " << paint(to_string(config.numCpu - used), YELLOW, useColor) << "\n\n";
+    ss << paint(DIVIDER, GRAY, useColor) << "\n";
 
-    ss << "Running processes:\n";
+    ss << paint("Running processes:", CYAN, useColor) << "\n";
     for (Process* p : processes) {
         if (p->core == -1) continue;
-        ss << left << setw(12) << p->name << "(" << p->createdAt << ")    Core: "
-           << setw(6) << p->core << p->pc << " / " << p->code.size() << "\n";
+        // pad before coloring so the color codes don't mess up the spacing
+        ss << paint(padRight(p->name, 12), WHITE, useColor)
+           << paint("(" + p->createdAt + ")", GRAY, useColor) << "    Core: "
+           << paint(padRight(to_string(p->core), 6), YELLOW, useColor)
+           << paint(to_string(p->pc), YELLOW, useColor) << " / "
+           << paint(to_string(p->code.size()), YELLOW, useColor) << "\n";
     }
 
-    ss << "\nFinished processes:\n";
+    ss << "\n" << paint("Finished processes:", CYAN, useColor) << "\n";
     for (Process* p : processes) {
         if (!p->finished) continue;
-        ss << left << setw(12) << p->name << "(" << p->finishedAt << ")    Finished    "
-           << p->pc << " / " << p->code.size() << "\n";
+        ss << paint(padRight(p->name, 12), WHITE, useColor)
+           << paint("(" + p->finishedAt + ")", GRAY, useColor) << "    "
+           << paint("Finished", GREEN, useColor) << "    "
+           << paint(to_string(p->pc), YELLOW, useColor) << " / "
+           << paint(to_string(p->code.size()), YELLOW, useColor) << "\n";
     }
-    ss << "------------------------------------------\n";
+    ss << paint(DIVIDER, GRAY, useColor) << "\n";
     return ss.str();
 }
 
 // Prints the process details for process-smi
 void printProcessSmi(Process* p) {
     lock_guard<mutex> lock(mtx);
-    cout << "\nProcess name: " << p->name << "\n";
-    cout << "ID: " << p->id << "\n";
+    cout << "\nProcess name: " << paint(p->name, WHITE) << "\n";
+    cout << "ID: " << paint(to_string(p->id), YELLOW) << "\n";
     cout << "Logs:\n";
     for (const string& log : p->logs) cout << log << "\n";
     cout << "\n";
 
     if (p->finished) {
-        cout << "Finished!\n\n";
+        cout << paint("Finished!", GREEN) << "\n\n";
     } else {
-        cout << "Current instruction line: " << p->pc << "\n";
-        cout << "Lines of code: " << p->code.size() << "\n\n";
+        cout << "Current instruction line: " << paint(to_string(p->pc), YELLOW) << "\n";
+        cout << "Lines of code: " << paint(to_string(p->code.size()), YELLOW) << "\n\n";
     }
 }
 
@@ -380,12 +431,12 @@ void openScreen(Process* p) {
 
     string cmd;
     while (true) {
-        cout << "root:\\> ";
+        printPrompt();
         if (!getline(cin, cmd)) break;
 
         if (cmd == "process-smi") printProcessSmi(p);
         else if (cmd == "exit") break;
-        else if (!cmd.empty()) cout << "Command not recognized\n";
+        else if (!cmd.empty()) cout << paint("Command not recognized", RED) << "\n";
     }
 
     // go back to the main menu
@@ -394,11 +445,12 @@ void openScreen(Process* p) {
 }
 
 int main() {
+    enableColors();
     printHeader();
 
     string line;
     while (true) {
-        cout << "root:\\> ";
+        printPrompt();
         if (!getline(cin, line)) break;
 
         // split the line into command, flag and name
@@ -411,25 +463,26 @@ int main() {
 
         if (cmd == "initialize") {
             if (initialized) {
-                cout << "Already initialized\n";
+                cout << paint("Already initialized", YELLOW) << "\n";
             } else if (!loadConfig()) {
-                cout << "Could not open config.txt\n";
+                cout << paint("Could not open config.txt", RED) << "\n";
             } else {
                 cores.assign(config.numCpu, nullptr);
                 coreTicks.assign(config.numCpu, 0);
                 initialized = true;
                 schedulerThread = thread(schedulerLoop);
-                cout << "Initialized with " << config.numCpu << " CPU(s) using " << config.scheduler << " scheduler\n";
+                cout << paint("Initialized with " + to_string(config.numCpu) + " CPU(s) using " +
+                              config.scheduler + " scheduler", GREEN) << "\n";
             }
         } else if (!initialized) {
-            cout << "Please type initialize first\n";
+            cout << paint("Please type initialize first", RED) << "\n";
         } else if (cmd == "screen" && flag == "-s" && !name.empty()) {
             Process* p = nullptr;
             {
                 lock_guard<mutex> lock(mtx);
                 if (findProcess(name) == nullptr) p = createProcess(name);
             }
-            if (p == nullptr) cout << "Process " << name << " already exists\n";
+            if (p == nullptr) cout << paint("Process " + name + " already exists", RED) << "\n";
             else openScreen(p);
         } else if (cmd == "screen" && flag == "-r" && !name.empty()) {
             Process* p = nullptr;
@@ -439,25 +492,25 @@ int main() {
                 // finished processes can't be opened anymore
                 if (p != nullptr && p->finished) p = nullptr;
             }
-            if (p == nullptr) cout << "Process " << name << " not found.\n";
+            if (p == nullptr) cout << paint("Process " + name + " not found.", RED) << "\n";
             else openScreen(p);
         } else if (cmd == "screen" && flag == "-ls") {
-            cout << buildReport();
+            cout << buildReport(true);
         } else if (cmd == "scheduler-start") {
             lock_guard<mutex> lock(mtx);
-            if (generating) cout << "Scheduler is already generating processes\n";
-            else { generating = true; cout << "Started generating processes\n"; }
+            if (generating) cout << paint("Scheduler is already generating processes", YELLOW) << "\n";
+            else { generating = true; cout << paint("Started generating processes", GREEN) << "\n"; }
         } else if (cmd == "scheduler-stop") {
             lock_guard<mutex> lock(mtx);
-            if (!generating) cout << "Scheduler is not generating processes\n";
-            else { generating = false; cout << "Stopped generating processes\n"; }
+            if (!generating) cout << paint("Scheduler is not generating processes", YELLOW) << "\n";
+            else { generating = false; cout << paint("Stopped generating processes", GREEN) << "\n"; }
         } else if (cmd == "report-util") {
             ofstream out("csopesy-log.txt");
-            out << buildReport();
+            out << buildReport(false);  // no color codes in the text file
             // show the full path so the user knows where the file went
-            cout << "Report generated at " << filesystem::absolute("csopesy-log.txt").string() << "!\n";
+            cout << paint("Report generated at " + filesystem::absolute("csopesy-log.txt").string() + "!", GREEN) << "\n";
         } else {
-            cout << "Command not recognized\n";
+            cout << paint("Command not recognized", RED) << "\n";
         }
     }
 
