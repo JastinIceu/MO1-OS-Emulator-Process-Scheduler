@@ -306,6 +306,18 @@ void removeFromCore(int c) {
     cores[c] = nullptr;
 }
 
+// Gives every idle core the next process in the ready queue
+void fillIdleCores() {
+    for (int c = 0; c < config.numCpu; c++) {
+        if (cores[c] == nullptr && !readyQueue.empty()) {
+            cores[c] = readyQueue.front();
+            readyQueue.pop_front();
+            cores[c]->core = c;
+            coreTicks[c] = 0;
+        }
+    }
+}
+
 // Background loop that ticks the cpu and runs the processes on each core
 void schedulerLoop() {
     while (running) {
@@ -326,15 +338,10 @@ void schedulerLoop() {
                 }
             }
 
-            for (int c = 0; c < config.numCpu; c++) {
-                // idle core grabs the next process in line
-                if (cores[c] == nullptr && !readyQueue.empty()) {
-                    cores[c] = readyQueue.front();
-                    readyQueue.pop_front();
-                    cores[c]->core = c;
-                    coreTicks[c] = 0;
-                }
+            // idle cores grab the next processes in line
+            fillIdleCores();
 
+            for (int c = 0; c < config.numCpu; c++) {
                 Process* p = cores[c];
                 if (p == nullptr) continue;
                 coreTicks[c]++;
@@ -362,6 +369,9 @@ void schedulerLoop() {
                     removeFromCore(c);
                 }
             }
+
+            // refill right away so cores don't sit empty until the next tick
+            fillIdleCores();
 
             cpuTicks++;
         }
